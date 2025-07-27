@@ -324,19 +324,36 @@ async def chat(text: str = Form(...), language: str = Form("en")):
         headers = {"Content-Type": "application/json"}
         params = {"key": GEMINI_API_KEY}
         
-        # Enhanced agricultural context and language support
+        # Map language codes to language names for better AI understanding
+        language_names = {
+            "ta": "Tamil",
+            "hi": "Hindi", 
+            "te": "Telugu",
+            "kn": "Kannada",
+            "ml": "Malayalam",
+            "bn": "Bengali",
+            "gu": "Gujarati",
+            "pa": "Punjabi",
+            "mr": "Marathi",
+            "en": "English"
+        }
+        
+        language_name = language_names.get(language, "English")
+        
+        # Enhanced agricultural context with strict language enforcement
         prompt = (
             f"You are HASIRI, an expert agricultural assistant for Indian farmers. "
-            f"Provide clear, practical, and regionally relevant advice in simple language. "
+            f"IMPORTANT: You must respond ONLY in {language_name} language. "
+            f"Do not mix languages or use English unless the user specifically asked in English. "
+            f"Provide clear, practical, and regionally relevant advice in simple {language_name} language. "
             f"Focus on actionable steps that farmers can take immediately. "
-            f"If the user asks in a specific Indian language, respond in that same language. "
             f"Cover topics like: crops, weather, pests, diseases, fertilizers, irrigation, "
             f"government schemes, market prices, organic farming, and seasonal advice. "
             f"Always be encouraging and supportive to farmers. "
             f"Use simple text without special symbols, bullet points, or formatting as your response will be converted to speech. "
             f"Instead of bullet points, use numbered lists or paragraphs. "
-            f"User's language preference: {language}. "
-            f"User message: {text}"
+            f"Respond completely in {language_name} language only. "
+            f"User's message: {text}"
         )
         
         data = {
@@ -365,11 +382,13 @@ async def chat(text: str = Form(...), language: str = Form("en")):
 @app.post("/analyze-image")
 async def analyze_image(
     file: UploadFile = File(...),
-    prompt: str = Form("Analyze this crop image for diseases, pests, growth stage, and provide farming advice")
+    prompt: str = Form("Analyze this crop image for diseases, pests, growth stage, and provide farming advice"),
+    language: str = Form("en")
 ):
     try:
         print(f"📸 Processing image analysis for file: {file.filename}")
         print(f"📝 Analysis prompt: {prompt[:100]}...")
+        print(f"🌐 Image analysis language: {language}")
         
         headers = {"Content-Type": "application/json"}
         params = {"key": GEMINI_API_KEY}
@@ -394,9 +413,28 @@ async def analyze_image(
         
         image_base64 = base64.b64encode(image_bytes).decode("utf-8")
         
-        # Enhanced prompt for better crop analysis
+        # Map language codes to language names for better AI understanding
+        language_names = {
+            "ta": "Tamil",
+            "hi": "Hindi", 
+            "te": "Telugu",
+            "kn": "Kannada",
+            "ml": "Malayalam",
+            "bn": "Bengali",
+            "gu": "Gujarati",
+            "pa": "Punjabi",
+            "mr": "Marathi",
+            "en": "English"
+        }
+        
+        language_name = language_names.get(language, "English")
+        
+        # Enhanced prompt for better crop analysis with language enforcement
         enhanced_prompt = (
-            f"You are an expert agricultural specialist. Analyze this crop image and provide: "
+            f"You are an expert agricultural specialist. "
+            f"IMPORTANT: You must respond ONLY in {language_name} language. "
+            f"Do not mix languages or use English unless the user specifically asked in English. "
+            f"Analyze this crop image and provide in {language_name} language: "
             f"1. Crop identification (if possible) "
             f"2. Disease detection (symptoms, causes, treatment) "
             f"3. Pest identification (if visible) "
@@ -404,9 +442,10 @@ async def analyze_image(
             f"5. Soil/environmental conditions visible "
             f"6. Recommended actions for the farmer "
             f"7. Prevention tips for future "
-            f"Be specific, practical, and provide actionable advice. "
+            f"Be specific, practical, and provide actionable advice in {language_name} language. "
             f"Use simple text without special symbols, bullet points, or formatting as your response will be converted to speech. "
             f"Instead of bullet points, use numbered lists or paragraphs. "
+            f"Respond completely in {language_name} language only. "
             f"User's specific request: {prompt}"
         )
         
