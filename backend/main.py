@@ -141,8 +141,83 @@ def clean_text_for_tts(text: str) -> str:
     
     return text
 
-# Root endpoint for health check
+def detect_language_from_text(text: str) -> str:
+    """
+    Fallback function to detect language from text patterns when Speech API doesn't provide it.
+    """
+    if not text:
+        return "en-US"
+    
+    text_lower = text.lower()
+    
+    # Check for Hindi script (Devanagari)
+    if re.search(r'[\u0900-\u097F]', text):
+        return "hi-IN"
+    
+    # Check for Tamil script
+    if re.search(r'[\u0B80-\u0BFF]', text):
+        return "ta-IN"
+    
+    # Check for Telugu script
+    if re.search(r'[\u0C00-\u0C7F]', text):
+        return "te-IN"
+    
+    # Check for Kannada script
+    if re.search(r'[\u0C80-\u0CFF]', text):
+        return "kn-IN"
+    
+    # Check for Malayalam script
+    if re.search(r'[\u0D00-\u0D7F]', text):
+        return "ml-IN"
+    
+    # Check for Bengali script
+    if re.search(r'[\u0980-\u09FF]', text):
+        return "bn-IN"
+    
+    # Check for Gujarati script
+    if re.search(r'[\u0A80-\u0AFF]', text):
+        return "gu-IN"
+    
+    # Check for Punjabi script (Gurmukhi)
+    if re.search(r'[\u0A00-\u0A7F]', text):
+        return "pa-IN"
+    
+    # Check for Marathi vs Hindi (both use Devanagari)
+    if re.search(r'[\u0900-\u097F]', text):
+        hindi_words = ['है', 'और', 'का', 'की', 'को', 'में', 'से', 'पर', 'के', 'यह', 'वह']
+        marathi_words = ['आहे', 'आणि', 'चा', 'ची', 'ला', 'मध्ये', 'पासून', 'वर', 'हा', 'तो']
+        
+        hindi_count = sum(1 for word in hindi_words if word in text_lower)
+        marathi_count = sum(1 for word in marathi_words if word in text_lower)
+        
+        if marathi_count > hindi_count:
+            return "mr-IN"
+        else:
+            return "hi-IN"
+    
+    # Check for common Tamil words written in English transliteration
+    tamil_words = ['vanakkam', 'nandri', 'payan', 'arisi', 'vivasayam', 'tamil', 'seyyalama', 'aruvadai']
+    if any(word in text_lower for word in tamil_words):
+        return "ta-IN"
+    
+    # Check for common Hindi words in transliteration
+    hindi_transliteration = ['kaise', 'kahan', 'kya', 'namaste', 'dhanyawad', 'krishi', 'fasal']
+    if any(word in text_lower for word in hindi_transliteration):
+        return "hi-IN"
+    
+    # Check for other language words in transliteration
+    if any(word in text_lower for word in ['telugu', 'ela', 'enti', 'bagundi']):
+        return "te-IN"
+    
+    if any(word in text_lower for word in ['kannada', 'hege', 'yaava', 'chennu']):
+        return "kn-IN"
+    
+    # Default to English
+    return "en-US"
+
+# Root endpoint for health check - support both GET and HEAD
 @app.get("/")
+@app.head("/")
 async def root():
     return {
         "message": "HASIRI Agricultural Assistant API",
@@ -218,16 +293,25 @@ async def speech_to_text(audio: UploadFile = File(...)):
             if "results" in result and result["results"]:
                 alt = result["results"][0]["alternatives"][0]
                 transcript = alt["transcript"]
-                # NEW: Get detected language code from Google Speech API
-                detected_language = alt.get("languageCode", "en-US")
+                # Try to get detected language from Google Speech API response
+                detected_language = alt.get("languageCode", None)
+                
+                # If Google Speech API didn't return language, use our text-based detection
+                if not detected_language:
+                    detected_language = detect_language_from_text(transcript)
+                    print(f"🧠 Using text-based language detection: {detected_language}")
+                else:
+                    print(f"🌐 Google Speech API detected language: {detected_language}")
+                
                 print(f"✅ Transcription successful: {transcript[:50]}...")
-                print(f"🌐 Detected language: {detected_language}")
+                print(f"🌐 Final detected language: {detected_language}")
             else:
                 print("⚠️ No speech detected in audio")
             
             return {
                 "transcript": transcript, 
-                "languageCode": detected_language
+                "languageCode": detected_language,
+                "language_code": detected_language  # Also include this for frontend compatibility
             }
         else:
             print(f"❌ Speech API error: {response.text}")
