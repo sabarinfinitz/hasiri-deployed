@@ -213,12 +213,22 @@ async def speech_to_text(audio: UploadFile = File(...)):
         if response.ok:
             result = response.json()
             transcript = ""
+            detected_language = "en-US"  # Default fallback
+            
             if "results" in result and result["results"]:
-                transcript = result["results"][0]["alternatives"][0]["transcript"]
+                alt = result["results"][0]["alternatives"][0]
+                transcript = alt["transcript"]
+                # NEW: Get detected language code from Google Speech API
+                detected_language = alt.get("languageCode", "en-US")
                 print(f"✅ Transcription successful: {transcript[:50]}...")
+                print(f"🌐 Detected language: {detected_language}")
             else:
                 print("⚠️ No speech detected in audio")
-            return {"transcript": transcript}
+            
+            return {
+                "transcript": transcript, 
+                "languageCode": detected_language
+            }
         else:
             print(f"❌ Speech API error: {response.text}")
             return {"error": response.text}
@@ -229,9 +239,10 @@ async def speech_to_text(audio: UploadFile = File(...)):
 
 # Text-to-Speech endpoint
 @app.post("/text-to-speech")
-async def text_to_speech(text: str = Form(...), language: str = Form("en-US")):
+async def text_to_speech(text: str = Form(...), languageCode: str = Form("en-US")):
     try:
-        print(f"🔊 Processing text-to-speech for language: {language}")
+        print(f"🔊 Processing text-to-speech")
+        print(f"🌐 Using languageCode: {languageCode}")
         print(f"📝 Original text length: {len(text)} characters")
         
         # Clean text to remove symbols and formatting that TTS might pronounce
@@ -272,7 +283,7 @@ async def text_to_speech(text: str = Form(...), language: str = Form("en-US")):
             print(f"✂️ TTS text truncated to {len(tts_text.encode('utf-8'))} bytes")
         
         # Select appropriate voice based on language
-        voice_config = {"languageCode": language, "ssmlGender": "FEMALE"}
+        voice_config = {"languageCode": languageCode, "ssmlGender": "FEMALE"}
         
         # Use specific voice names for Indian languages for better quality
         voice_names = {
@@ -288,9 +299,11 @@ async def text_to_speech(text: str = Form(...), language: str = Form("en-US")):
             "en-US": "en-US-Standard-C",  # English female voice
         }
         
-        if language in voice_names:
-            voice_config["name"] = voice_names[language]
-            print(f"🎭 Using voice: {voice_names[language]}")
+        if languageCode in voice_names:
+            voice_config["name"] = voice_names[languageCode]
+            print(f"🎭 Using voice: {voice_names[languageCode]}")
+        else:
+            print(f"🎭 Using default voice for: {languageCode}")
         
         data = {
             "input": {"text": tts_text},
@@ -316,9 +329,14 @@ async def text_to_speech(text: str = Form(...), language: str = Form("en-US")):
 
 # Chat endpoint
 @app.post("/chat")
-async def chat(text: str = Form(...), language: str = Form("en")):
+async def chat(text: str = Form(...), languageCode: str = Form("en-US")):
     try:
-        print(f"💬 Processing chat request in language: {language}")
+        # Extract language part (e.g., 'ta' from 'ta-IN')
+        language = languageCode.split('-')[0]
+        
+        print(f"💬 Processing chat request")
+        print(f"🌐 Detected languageCode: {languageCode}")
+        print(f"🔤 Extracted language: {language}")
         print(f"📝 User message: {text[:100]}...")
         
         headers = {"Content-Type": "application/json"}
@@ -387,12 +405,16 @@ async def chat(text: str = Form(...), language: str = Form("en")):
 async def analyze_image(
     file: UploadFile = File(...),
     prompt: str = Form("Analyze this crop image for diseases, pests, growth stage, and provide farming advice"),
-    language: str = Form("en")
+    languageCode: str = Form("en-US")
 ):
     try:
+        # Extract language part (e.g., 'ta' from 'ta-IN')
+        language = languageCode.split('-')[0]
+        
         print(f"📸 Processing image analysis for file: {file.filename}")
         print(f"📝 Analysis prompt: {prompt[:100]}...")
-        print(f"🌐 Image analysis language: {language}")
+        print(f"🌐 Image analysis languageCode: {languageCode}")
+        print(f"🔤 Extracted language: {language}")
         
         headers = {"Content-Type": "application/json"}
         params = {"key": GEMINI_API_KEY}
