@@ -58,16 +58,20 @@ app = FastAPI(
 )
 
 # Configure CORS for Flutter web/app deployment
-# In production, you might want to restrict origins to your Firebase hosting domain
+# Updated CORS for Firebase hosting and Render backend
 FRONTEND_URLS = [
     "http://localhost:3000",  # Local development
     "http://localhost:5000",  # Firebase local
-    "https://hasiri-agriassist.web.app",  # Firebase hosting (update with your actual domain)
+    "https://hasiri-agriassist.web.app",  # Firebase hosting
     "https://hasiri-agriassist.firebaseapp.com",  # Firebase hosting fallback
+    "https://hasiri-agriassist-default-rtdb.firebaseio.com",  # Firebase database
+    "https://*.web.app",  # Any Firebase web app domain
+    "https://*.firebaseapp.com",  # Any Firebase app domain
 ]
 
-# For development, allow all origins; for production, use specific domains
-CORS_ORIGINS = ["*"] if env_path.exists() else FRONTEND_URLS
+# For production on Render, allow all origins temporarily for debugging
+# In production, you should restrict to specific domains for security
+CORS_ORIGINS = ["*"]  # Allow all origins for now
 
 app.add_middleware(
     CORSMiddleware,
@@ -136,6 +140,45 @@ def clean_text_for_tts(text: str) -> str:
     text = text.strip()                                                 # Leading/trailing spaces
     
     return text
+
+# Root endpoint for health check
+@app.get("/")
+async def root():
+    return {
+        "message": "HASIRI Agricultural Assistant API",
+        "status": "active",
+        "version": "1.0.0",
+        "endpoints": [
+            "/chat",
+            "/speech-to-text", 
+            "/text-to-speech",
+            "/analyze-image"
+        ]
+    }
+
+# Health check endpoint
+@app.get("/health")
+async def health_check():
+    return {"status": "healthy", "timestamp": "2025-07-27"}
+
+# Test endpoint for debugging connections
+@app.get("/test")
+async def test_connection():
+    return {
+        "message": "Connection successful!",
+        "backend": "Render",
+        "api_keys_loaded": bool(GEMINI_API_KEY and GOOGLE_SPEECH_API_KEY),
+        "cors_enabled": True
+    }
+
+# Simple POST test endpoint
+@app.post("/test-post")
+async def test_post(message: str = Form("Hello from frontend!")):
+    return {
+        "received": message,
+        "response": "Backend received your message successfully!",
+        "status": "working"
+    }
 
 # Speech-to-Text endpoint
 @app.post("/speech-to-text")
