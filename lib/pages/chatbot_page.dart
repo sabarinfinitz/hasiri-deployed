@@ -35,6 +35,10 @@ class ChatbotPageState extends State<ChatbotPage> {
   bool _isPlayingTTS = false;
   bool _isPausedTTS = false;
   
+  // Image audio playback state
+  bool _isImageAudioPlaying = false;
+  bool _isImageAudioPaused = false;
+  
   // Image analysis fields
   File? _selectedImage;
   Uint8List? _selectedImageBytes;
@@ -252,6 +256,111 @@ class ChatbotPageState extends State<ChatbotPage> {
     }
   }
 
+  Future<void> _playImageTTS(String text) async {
+    try {
+      print('Starting Image TTS for text: $text');
+      
+      // Truncate text if it's too long for TTS (5000 byte limit)
+      String ttsText = text;
+      if (text.length > 1000) { // Conservative limit to account for UTF-8 encoding
+        ttsText = text.substring(0, 1000) + "...";
+        print('Text truncated for TTS. Original length: ${text.length}, TTS length: ${ttsText.length}');
+      }
+      
+      // Detect language of the text for appropriate TTS
+      String detectedLanguage = _detectLanguage(ttsText);
+      print('Detected language: $detectedLanguage');
+      
+      var uri = Uri.parse('http://localhost:8000/text-to-speech');
+      var response = await http.post(
+        uri, 
+        headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+        body: {'text': ttsText, 'language': detectedLanguage}
+      );
+      
+      if (response.statusCode == 200) {
+        var data = json.decode(response.body);
+        String audioBase64 = data['audioContent'] ?? '';
+        
+        if (audioBase64.isNotEmpty) {
+          try {
+            Uint8List audioBytes = base64Decode(audioBase64);
+            print('Playing Image TTS audio in $detectedLanguage, size: ${audioBytes.length} bytes');
+            
+            // Stop any currently playing audio
+            await _audioPlayer.stop();
+            
+            // Set up audio player event listeners for image audio
+            _audioPlayer.onPlayerStateChanged.listen((audio.PlayerState state) {
+              if (mounted) {
+                setState(() {
+                  _isImageAudioPlaying = state == audio.PlayerState.playing;
+                  _isImageAudioPaused = state == audio.PlayerState.paused;
+                });
+              }
+            });
+            
+            // Play the audio
+            setState(() {
+              _isImageAudioPlaying = true;
+              _isImageAudioPaused = false;
+            });
+            
+            await _audioPlayer.play(audio.BytesSource(audioBytes));
+            print('Image TTS playback started successfully in $detectedLanguage');
+            
+            // Show message if text was truncated
+            if (text.length > 1000 && mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('Long text was truncated for speech playback'),
+                  backgroundColor: Colors.orange,
+                  duration: Duration(seconds: 2),
+                ),
+              );
+            }
+          } catch (e) {
+            print('Error playing Image TTS audio: $e');
+            setState(() {
+              _isImageAudioPlaying = false;
+              _isImageAudioPaused = false;
+            });
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text('Failed to play audio response')),
+              );
+            }
+          }
+        } else {
+          print('No audio content received from Image TTS service');
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('No audio content received')),
+            );
+          }
+        }
+      } else {
+        print('Image TTS request failed: ${response.statusCode} - ${response.body}');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Text-to-speech service unavailable')),
+          );
+        }
+      }
+    } catch (e) {
+      print('Error in Image TTS: $e');
+      setState(() {
+        _isImageAudioPlaying = false;
+        _isImageAudioPaused = false;
+      });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to convert text to speech')),
+        );
+      }
+    }
+  }
+
   Future<void> _pauseResumeTTS() async {
     try {
       if (_isPlayingTTS && !_isPausedTTS) {
@@ -272,12 +381,52 @@ class ChatbotPageState extends State<ChatbotPage> {
     }
   }
 
+  Future<void> _pauseTTS() async {
+    try {
+      if ((_isPlayingTTS && !_isPausedTTS) || (_isImageAudioPlaying && !_isImageAudioPaused)) {
+        await _audioPlayer.pause();
+        setState(() {
+          _isPausedTTS = true;
+          _isPlayingTTS = false;
+          if (_isImageAudioPlaying) {
+            _isImageAudioPaused = true;
+            _isImageAudioPlaying = false;
+          }
+        });
+      }
+    } catch (e) {
+      print('Error pausing TTS: $e');
+    }
+  }
+
+  Future<void> _resumeTTS() async {
+    try {
+      if (_isPausedTTS || _isImageAudioPaused) {
+        await _audioPlayer.resume();
+        setState(() {
+          if (_isPausedTTS) {
+            _isPausedTTS = false;
+            _isPlayingTTS = true;
+          }
+          if (_isImageAudioPaused) {
+            _isImageAudioPaused = false;
+            _isImageAudioPlaying = true;
+          }
+        });
+      }
+    } catch (e) {
+      print('Error resuming TTS: $e');
+    }
+  }
+
   Future<void> _stopTTS() async {
     try {
       await _audioPlayer.stop();
       setState(() {
         _isPlayingTTS = false;
         _isPausedTTS = false;
+        _isImageAudioPlaying = false;
+        _isImageAudioPaused = false;
       });
     } catch (e) {
       print('Error stopping TTS: $e');
@@ -1957,21 +2106,82 @@ class ChatbotPageState extends State<ChatbotPage> {
                             ),
                           ),
                           SizedBox(height: 10),
-                          ElevatedButton.icon(
-                            onPressed: () async {
-                              if (_imageReply != null && _imageReply!.isNotEmpty) {
-                                await _playTTS(_imageReply!);
-                              }
-                            },
-                            icon: Icon(Icons.volume_up, size: 18),
-                            label: Text('Listen to Result'),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: KissanColors.success,
-                              foregroundColor: Colors.white,
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(10),
+                          Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              IconButton(
+                                onPressed: () async {
+                                  if (_imageReply != null && _imageReply!.isNotEmpty) {
+                                    if (_isImageAudioPlaying && !_isImageAudioPaused) {
+                                      await _pauseTTS();
+                                      setState(() {
+                                        _isImageAudioPaused = true;
+                                      });
+                                    } else if (_isImageAudioPaused) {
+                                      await _resumeTTS();
+                                      setState(() {
+                                        _isImageAudioPaused = false;
+                                      });
+                                    } else {
+                                      setState(() {
+                                        _isImageAudioPlaying = true;
+                                        _isImageAudioPaused = false;
+                                      });
+                                      await _playImageTTS(_imageReply!);
+                                      setState(() {
+                                        _isImageAudioPlaying = false;
+                                        _isImageAudioPaused = false;
+                                      });
+                                    }
+                                  }
+                                },
+                                icon: Icon(
+                                  _isImageAudioPlaying && !_isImageAudioPaused
+                                      ? Icons.pause
+                                      : Icons.play_arrow,
+                                  color: KissanColors.primary,
+                                ),
+                                style: IconButton.styleFrom(
+                                  backgroundColor: Colors.white,
+                                  side: BorderSide(color: KissanColors.primary, width: 1),
+                                ),
                               ),
-                            ),
+                              SizedBox(width: 8),
+                              IconButton(
+                                onPressed: (_isImageAudioPlaying || _isImageAudioPaused) ? () async {
+                                  await _stopTTS();
+                                  setState(() {
+                                    _isImageAudioPlaying = false;
+                                    _isImageAudioPaused = false;
+                                  });
+                                } : null,
+                                icon: Icon(
+                                  Icons.stop,
+                                  color: (_isImageAudioPlaying || _isImageAudioPaused) 
+                                      ? KissanColors.warning 
+                                      : Colors.grey,
+                                ),
+                                style: IconButton.styleFrom(
+                                  backgroundColor: Colors.white,
+                                  side: BorderSide(
+                                    color: (_isImageAudioPlaying || _isImageAudioPaused) 
+                                        ? KissanColors.warning 
+                                        : Colors.grey, 
+                                    width: 1
+                                  ),
+                                ),
+                              ),
+                              SizedBox(width: 8),
+                              if (_isImageAudioPlaying && !_isImageAudioPaused)
+                                Container(
+                                  width: 20,
+                                  height: 20,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    valueColor: AlwaysStoppedAnimation<Color>(KissanColors.primary),
+                                  ),
+                                ),
+                            ],
                           ),
                         ],
                       ),
