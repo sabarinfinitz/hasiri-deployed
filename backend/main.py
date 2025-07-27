@@ -1,24 +1,33 @@
 import os
+import sys
+import re
 from pathlib import Path
 from fastapi import FastAPI, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 import requests
+from PIL import Image
+import io
 import base64
 
-# Load environment variables from C:\dev\.env (adjust if needed)
-env_path = Path(__file__).parent.parent.parent / '.env'
-load_dotenv(env_path)
+# Load environment variables from C:\dev\.env for local development
+# In production (Render), environment variables are set in the dashboard
+env_path = Path(r'C:\dev\.env')
 
-print(f"🔍 Loading .env from: {env_path}")
-print(f"📁 Absolute path: {env_path.absolute()}")
-print(f"✅ .env file exists: {env_path.exists()}")
+# Only load .env file if it exists (for local development)
+if env_path.exists():
+    load_dotenv(env_path)
+    print(f"🔍 Loading .env from: {env_path}")
+    print(f"✅ .env file exists: {env_path.exists()}")
+else:
+    print("🌐 Running in production mode - using environment variables from hosting platform")
 
 # Get API keys
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 GOOGLE_SPEECH_API_KEY = os.getenv("GOOGLE_SPEECH_API_KEY")
 GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent"
 
+# Verify keys are loaded (show only first few characters for security)
 if GOOGLE_SPEECH_API_KEY:
     print(f"🔑 Google Speech API Key loaded: {GOOGLE_SPEECH_API_KEY[:15]}...")
 else:
@@ -29,36 +38,104 @@ if GEMINI_API_KEY:
 else:
     print("❌ Gemini API Key not found!")
 
+# Raise error if keys are missing
 if not GOOGLE_SPEECH_API_KEY or not GEMINI_API_KEY:
-    print(f"❌ Error: API keys not found in {env_path}")
-    print("Please ensure your .env file exists at C:\\dev\\.env with:")
+    if env_path.exists():
+        print(f"❌ Error: API keys not found in {env_path}")
+        print("Please ensure your .env file exists at C:\\dev\\.env with:")
+    else:
+        print("❌ Error: API keys not found in environment variables")
+        print("For local development, create .env file at C:\\dev\\.env with:")
+        print("For production deployment, set environment variables in hosting platform with:")
     print("GOOGLE_SPEECH_API_KEY=your_key_here")
     print("GEMINI_API_KEY=your_key_here")
-    raise ValueError("Missing required API keys in .env file")
+    raise ValueError("Missing required API keys")
 
-app = FastAPI()
+app = FastAPI(
+    title="HASIRI Agricultural Assistant API",
+    description="AI-powered agricultural assistant for farmers",
+    version="1.0.0"
+)
 
-# Allow CORS for all origins (adjust in production)
+# Configure CORS for Flutter web/app deployment
+# In production, you might want to restrict origins to your Firebase hosting domain
+FRONTEND_URLS = [
+    "http://localhost:3000",  # Local development
+    "http://localhost:5000",  # Firebase local
+    "https://hasiri-agriassist.web.app",  # Firebase hosting (update with your actual domain)
+    "https://hasiri-agriassist.firebaseapp.com",  # Firebase hosting fallback
+]
+
+# For development, allow all origins; for production, use specific domains
+CORS_ORIGINS = ["*"] if env_path.exists() else FRONTEND_URLS
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Change to your frontend URL in production
+    allow_origins=CORS_ORIGINS,
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST"],
     allow_headers=["*"],
 )
 
-# Root endpoint to avoid 404
-@app.get("/")
-async def root():
-    return {
-        "message": "HASIRI AgriAssistant Backend is running.",
-        "available_endpoints": [
-            "POST /chat",
-            "POST /speech-to-text",
-            "POST /text-to-speech",
-            "POST /analyze-image"
-        ]
-    }
+def clean_text_for_tts(text: str) -> str:
+    """
+    Clean text for Text-to-Speech to avoid pronunciation of symbols and formatting.
+    Removes markdown formatting, bullet points, and other symbols that TTS might pronounce.
+    """
+    if not text:
+        return ""
+    
+    # Remove markdown formatting
+    text = re.sub(r'\*\*([^*]+)\*\*', r'\1', text)  # Bold **text**
+    text = re.sub(r'\*([^*]+)\*', r'\1', text)      # Italic *text*
+    text = re.sub(r'__([^_]+)__', r'\1', text)      # Bold __text__
+    text = re.sub(r'_([^_]+)_', r'\1', text)        # Italic _text_
+    text = re.sub(r'`([^`]+)`', r'\1', text)        # Code `text`
+    text = re.sub(r'```[^`]*```', '', text)         # Code blocks
+    
+    # Remove bullet points and list markers
+    text = re.sub(r'^[\s]*[•·▪▫‣⁃]\s*', '', text, flags=re.MULTILINE)  # Unicode bullets
+    text = re.sub(r'^[\s]*[-*+]\s*', '', text, flags=re.MULTILINE)     # ASCII bullets
+    text = re.sub(r'^[\s]*\d+\.\s*', '', text, flags=re.MULTILINE)     # Numbered lists
+    
+    # Remove headers
+    text = re.sub(r'^#+\s*', '', text, flags=re.MULTILINE)             # Markdown headers
+    
+    # Remove links
+    text = re.sub(r'\[([^\]]+)\]\([^)]+\)', r'\1', text)               # [text](url)
+    text = re.sub(r'https?://[^\s]+', '', text)                        # Raw URLs
+    
+    # Remove common symbols that might be pronounced
+    text = re.sub(r'[#@$%^&*(){}[\]|\\<>]', '', text)                  # Special characters
+    text = re.sub(r'[→←↑↓⟹⟸⟷]', '', text)                             # Arrow symbols
+    text = re.sub(r'[✓✗✘✔✕]', '', text)                                # Check marks
+    text = re.sub(r'[©®™]', '', text)                                   # Copyright symbols
+    text = re.sub(r'[°℃℉]', ' degrees ', text)                         # Temperature symbols
+    text = re.sub(r'[₹$£€¥]', '', text)                                 # Currency symbols
+    
+    # Clean up excessive punctuation
+    text = re.sub(r'[.]{2,}', '.', text)                               # Multiple dots
+    text = re.sub(r'[-]{2,}', '-', text)                               # Multiple dashes
+    text = re.sub(r'[!]{2,}', '!', text)                               # Multiple exclamations
+    text = re.sub(r'[?]{2,}', '?', text)                               # Multiple questions
+    
+    # Replace common separators with natural pauses
+    text = re.sub(r'[-–—]', ', ', text)                                 # Dashes to commas
+    text = re.sub(r'[|]', ', ', text)                                   # Pipes to commas
+    text = re.sub(r'[/]', ' or ', text)                                 # Slashes to "or"
+    
+    # Handle common abbreviations that might be mispronounced
+    text = re.sub(r'\b(etc\.?)\b', 'and so on', text, flags=re.IGNORECASE)
+    text = re.sub(r'\b(i\.e\.?)\b', 'that is', text, flags=re.IGNORECASE)
+    text = re.sub(r'\b(e\.g\.?)\b', 'for example', text, flags=re.IGNORECASE)
+    text = re.sub(r'\b(vs\.?)\b', 'versus', text, flags=re.IGNORECASE)
+    
+    # Clean up whitespace
+    text = re.sub(r'\s+', ' ', text)                                    # Multiple spaces
+    text = re.sub(r'\n\s*\n', '\n', text)                              # Multiple newlines
+    text = text.strip()                                                 # Leading/trailing spaces
+    
+    return text
 
 # Speech-to-Text endpoint
 @app.post("/speech-to-text")
@@ -67,15 +144,18 @@ async def speech_to_text(audio: UploadFile = File(...)):
         print(f"🎤 Processing speech-to-text for file: {audio.filename}")
         audio_bytes = await audio.read()
         
-        headers = {"Content-Type": "application/json"}
+        headers = {
+            "Content-Type": "application/json",
+        }
         stt_url = f"https://speech.googleapis.com/v1/speech:recognize?key={GOOGLE_SPEECH_API_KEY}"
         
+        # Enhanced configuration for better recognition
         data = {
             "config": {
                 "encoding": "LINEAR16",
                 "sampleRateHertz": 16000,
                 "languageCode": "en-US",
-                "alternativeLanguageCodes": ["hi-IN", "ta-IN", "te-IN", "kn-IN"],
+                "alternativeLanguageCodes": ["hi-IN", "ta-IN", "te-IN", "kn-IN"],  # Support Indian languages
                 "enableAutomaticPunctuation": True,
                 "model": "latest_long"
             },
@@ -109,18 +189,29 @@ async def speech_to_text(audio: UploadFile = File(...)):
 async def text_to_speech(text: str = Form(...), language: str = Form("en-US")):
     try:
         print(f"🔊 Processing text-to-speech for language: {language}")
-        print(f"📝 Text length: {len(text)} characters")
+        print(f"📝 Original text length: {len(text)} characters")
         
-        headers = {"Content-Type": "application/json"}
+        # Clean text to remove symbols and formatting that TTS might pronounce
+        cleaned_text = clean_text_for_tts(text)
+        print(f"🧹 Cleaned text length: {len(cleaned_text)} characters")
+        
+        headers = {
+            "Content-Type": "application/json",
+        }
         tts_url = f"https://texttospeech.googleapis.com/v1/text:synthesize?key={GOOGLE_SPEECH_API_KEY}"
         
-        tts_text = text
-        if len(text.encode('utf-8')) > 4500:
-            print(f"⚠️ Text too long for TTS ({len(text.encode('utf-8'))} bytes), truncating...")
-            sentences = text.split('।')
+        # Handle long text by truncating intelligently
+        tts_text = cleaned_text
+        if len(cleaned_text.encode('utf-8')) > 4500:  # Conservative limit to avoid 5000 byte limit
+            print(f"⚠️ Text too long for TTS ({len(cleaned_text.encode('utf-8'))} bytes), truncating...")
+            
+            # Try to find natural break points (sentences)
+            sentences = cleaned_text.split('।')  # Hindi sentence separator
             if len(sentences) == 1:
-                sentences = text.split('.')
+                sentences = cleaned_text.split('.')  # English sentence separator
+            
             if len(sentences) > 1:
+                # Take first few sentences that fit within limit
                 tts_text = ""
                 for sentence in sentences:
                     test_text = tts_text + sentence + "।" if tts_text else sentence
@@ -128,25 +219,32 @@ async def text_to_speech(text: str = Form(...), language: str = Form("en-US")):
                         tts_text = test_text
                     else:
                         break
-                if not tts_text:
-                    tts_text = text[:1000] + "..."
+                
+                if not tts_text:  # Fallback if even first sentence is too long
+                    tts_text = cleaned_text[:1000] + "..."
             else:
-                tts_text = text[:1000] + "..."
+                # Simple truncation if no sentence breaks found
+                tts_text = cleaned_text[:1000] + "..."
+            
             print(f"✂️ TTS text truncated to {len(tts_text.encode('utf-8'))} bytes")
         
+        # Select appropriate voice based on language
         voice_config = {"languageCode": language, "ssmlGender": "FEMALE"}
+        
+        # Use specific voice names for Indian languages for better quality
         voice_names = {
-            "ta-IN": "ta-IN-Standard-A",
-            "hi-IN": "hi-IN-Standard-A",
-            "te-IN": "te-IN-Standard-A",
-            "kn-IN": "kn-IN-Standard-A",
-            "ml-IN": "ml-IN-Standard-A",
-            "bn-IN": "bn-IN-Standard-A",
-            "gu-IN": "gu-IN-Standard-A",
-            "pa-IN": "pa-IN-Standard-A",
-            "mr-IN": "mr-IN-Standard-A",
-            "en-US": "en-US-Standard-C",
+            "ta-IN": "ta-IN-Standard-A",  # Tamil female voice
+            "hi-IN": "hi-IN-Standard-A",  # Hindi female voice
+            "te-IN": "te-IN-Standard-A",  # Telugu female voice
+            "kn-IN": "kn-IN-Standard-A",  # Kannada female voice
+            "ml-IN": "ml-IN-Standard-A",  # Malayalam female voice
+            "bn-IN": "bn-IN-Standard-A",  # Bengali female voice
+            "gu-IN": "gu-IN-Standard-A",  # Gujarati female voice
+            "pa-IN": "pa-IN-Standard-A",  # Punjabi female voice
+            "mr-IN": "mr-IN-Standard-A",  # Marathi female voice
+            "en-US": "en-US-Standard-C",  # English female voice
         }
+        
         if language in voice_names:
             voice_config["name"] = voice_names[language]
             print(f"🎭 Using voice: {voice_names[language]}")
@@ -183,6 +281,7 @@ async def chat(text: str = Form(...), language: str = Form("en")):
         headers = {"Content-Type": "application/json"}
         params = {"key": GEMINI_API_KEY}
         
+        # Enhanced agricultural context and language support
         prompt = (
             f"You are HASIRI, an expert agricultural assistant for Indian farmers. "
             f"Provide clear, practical, and regionally relevant advice in simple language. "
@@ -191,11 +290,17 @@ async def chat(text: str = Form(...), language: str = Form("en")):
             f"Cover topics like: crops, weather, pests, diseases, fertilizers, irrigation, "
             f"government schemes, market prices, organic farming, and seasonal advice. "
             f"Always be encouraging and supportive to farmers. "
+            f"Use simple text without special symbols, bullet points, or formatting as your response will be converted to speech. "
+            f"Instead of bullet points, use numbered lists or paragraphs. "
             f"User's language preference: {language}. "
             f"User message: {text}"
         )
         
-        data = {"contents": [{"role": "user", "parts": [{"text": prompt}]}]}
+        data = {
+            "contents": [
+                {"role": "user", "parts": [{"text": prompt}]}
+            ]
+        }
         
         response = requests.post(GEMINI_API_URL, headers=headers, params=params, json=data)
         print(f"🔍 Gemini response status: {response.status_code}")
@@ -229,32 +334,36 @@ async def analyze_image(
         image_bytes = await file.read()
         print(f"📊 Image size: {len(image_bytes)} bytes")
         
+        # Detect MIME type, fallback to image/jpeg if unknown
         mime_type = file.content_type
         if not mime_type or mime_type == "application/octet-stream":
-            if file.filename:
-                if file.filename.lower().endswith(".png"):
-                    mime_type = "image/png"
-                elif file.filename.lower().endswith((".jpg", ".jpeg")):
-                    mime_type = "image/jpeg"
-                else:
-                    mime_type = "image/jpeg"
-            else:
+            # Try to guess from file extension
+            if file.filename and file.filename.lower().endswith(".png"):
+                mime_type = "image/png"
+            elif file.filename and file.filename.lower().endswith(".jpg"):
                 mime_type = "image/jpeg"
+            elif file.filename and file.filename.lower().endswith(".jpeg"):
+                mime_type = "image/jpeg"
+            else:
+                mime_type = "image/jpeg"  # Default fallback
         
         print(f"🖼️ Detected MIME type: {mime_type}")
         
         image_base64 = base64.b64encode(image_bytes).decode("utf-8")
         
+        # Enhanced prompt for better crop analysis
         enhanced_prompt = (
-            "You are an expert agricultural specialist. Analyze this crop image and provide: "
-            "1. Crop identification (if possible) "
-            "2. Disease detection (symptoms, causes, treatment) "
-            "3. Pest identification (if visible) "
-            "4. Growth stage assessment "
-            "5. Soil/environmental conditions visible "
-            "6. Recommended actions for the farmer "
-            "7. Prevention tips for future "
-            "Be specific, practical, and provide actionable advice. "
+            f"You are an expert agricultural specialist. Analyze this crop image and provide: "
+            f"1. Crop identification (if possible) "
+            f"2. Disease detection (symptoms, causes, treatment) "
+            f"3. Pest identification (if visible) "
+            f"4. Growth stage assessment "
+            f"5. Soil/environmental conditions visible "
+            f"6. Recommended actions for the farmer "
+            f"7. Prevention tips for future "
+            f"Be specific, practical, and provide actionable advice. "
+            f"Use simple text without special symbols, bullet points, or formatting as your response will be converted to speech. "
+            f"Instead of bullet points, use numbered lists or paragraphs. "
             f"User's specific request: {prompt}"
         )
         
@@ -293,14 +402,12 @@ async def analyze_image(
 
 if __name__ == "__main__":
     import uvicorn
-    port = int(os.environ.get("PORT", 8000))
     print("🚀 Starting HASIRI Backend Server...")
     print(f"📁 Using .env file from: {env_path.absolute()}")
-    print(f"🌐 Server will be available at: http://localhost:{port}")
+    print(f"🌐 Server will be available at: http://localhost:8000")
     print(f"📋 API Endpoints:")
     print(f"   • POST /chat - Chat with AI assistant")
     print(f"   • POST /speech-to-text - Convert speech to text")
     print(f"   • POST /text-to-speech - Convert text to speech")
     print(f"   • POST /analyze-image - Analyze crop images")
-    uvicorn.run(app, host="0.0.0.0", port=port)
-
+    uvicorn.run(app, host="0.0.0.0", port=8000)
