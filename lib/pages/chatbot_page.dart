@@ -12,6 +12,7 @@ import '../theme/colors.dart';
 import 'package:http/http.dart' as http;
 import 'dart:ui'; // Needed for ImageFilter
 import 'dart:js' as js; // For JavaScript interop
+import '../config/api_config.dart';
 
 class ChatbotPage extends StatefulWidget {
   const ChatbotPage({super.key});
@@ -46,6 +47,10 @@ class ChatbotPageState extends State<ChatbotPage> {
   final TextEditingController _imageDescController = TextEditingController();
   bool _awaitingImageDesc = false;
   bool _isUploading = false;
+
+  // Language consistency - track conversation language
+  String _conversationLanguage = 'en-US'; // Default language
+  String _conversationLanguageCode = 'en'; // Language code for backend
 
   @override
   void initState() {
@@ -151,7 +156,7 @@ class ChatbotPageState extends State<ChatbotPage> {
     return 'en-US';
   }
 
-  Future<void> _playTTS(String text) async {
+  Future<void> _playTTS(String text, {bool useConversationLanguage = false}) async {
     try {
       print('Starting TTS for text: $text');
       
@@ -162,11 +167,17 @@ class ChatbotPageState extends State<ChatbotPage> {
         print('Text truncated for TTS. Original length: ${text.length}, TTS length: ${ttsText.length}');
       }
       
-      // Detect language of the text for appropriate TTS
-      String detectedLanguage = _detectLanguage(ttsText);
-      print('Detected language: $detectedLanguage');
+      // Use conversation language if specified, otherwise detect from text
+      String detectedLanguage;
+      if (useConversationLanguage && _conversationLanguage.isNotEmpty) {
+        detectedLanguage = _conversationLanguage;
+        print('🎯 Using conversation language: $detectedLanguage');
+      } else {
+        detectedLanguage = _detectLanguage(ttsText);
+        print('🔍 Detected language from text: $detectedLanguage');
+      }
       
-      var uri = Uri.parse('http://localhost:8000/text-to-speech');
+      var uri = Uri.parse(ApiConfig.textToSpeechEndpoint);
       var response = await http.post(
         uri, 
         headers: {'Content-Type': 'application/x-www-form-urlencoded'},
@@ -256,111 +267,6 @@ class ChatbotPageState extends State<ChatbotPage> {
     }
   }
 
-  Future<void> _playImageTTS(String text) async {
-    try {
-      print('Starting Image TTS for text: $text');
-      
-      // Truncate text if it's too long for TTS (5000 byte limit)
-      String ttsText = text;
-      if (text.length > 1000) { // Conservative limit to account for UTF-8 encoding
-        ttsText = text.substring(0, 1000) + "...";
-        print('Text truncated for TTS. Original length: ${text.length}, TTS length: ${ttsText.length}');
-      }
-      
-      // Detect language of the text for appropriate TTS
-      String detectedLanguage = _detectLanguage(ttsText);
-      print('Detected language: $detectedLanguage');
-      
-      var uri = Uri.parse('http://localhost:8000/text-to-speech');
-      var response = await http.post(
-        uri, 
-        headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-        body: {'text': ttsText, 'language': detectedLanguage}
-      );
-      
-      if (response.statusCode == 200) {
-        var data = json.decode(response.body);
-        String audioBase64 = data['audioContent'] ?? '';
-        
-        if (audioBase64.isNotEmpty) {
-          try {
-            Uint8List audioBytes = base64Decode(audioBase64);
-            print('Playing Image TTS audio in $detectedLanguage, size: ${audioBytes.length} bytes');
-            
-            // Stop any currently playing audio
-            await _audioPlayer.stop();
-            
-            // Set up audio player event listeners for image audio
-            _audioPlayer.onPlayerStateChanged.listen((audio.PlayerState state) {
-              if (mounted) {
-                setState(() {
-                  _isImageAudioPlaying = state == audio.PlayerState.playing;
-                  _isImageAudioPaused = state == audio.PlayerState.paused;
-                });
-              }
-            });
-            
-            // Play the audio
-            setState(() {
-              _isImageAudioPlaying = true;
-              _isImageAudioPaused = false;
-            });
-            
-            await _audioPlayer.play(audio.BytesSource(audioBytes));
-            print('Image TTS playback started successfully in $detectedLanguage');
-            
-            // Show message if text was truncated
-            if (text.length > 1000 && mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text('Long text was truncated for speech playback'),
-                  backgroundColor: Colors.orange,
-                  duration: Duration(seconds: 2),
-                ),
-              );
-            }
-          } catch (e) {
-            print('Error playing Image TTS audio: $e');
-            setState(() {
-              _isImageAudioPlaying = false;
-              _isImageAudioPaused = false;
-            });
-            if (mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text('Failed to play audio response')),
-              );
-            }
-          }
-        } else {
-          print('No audio content received from Image TTS service');
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text('No audio content received')),
-            );
-          }
-        }
-      } else {
-        print('Image TTS request failed: ${response.statusCode} - ${response.body}');
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Text-to-speech service unavailable')),
-          );
-        }
-      }
-    } catch (e) {
-      print('Error in Image TTS: $e');
-      setState(() {
-        _isImageAudioPlaying = false;
-        _isImageAudioPaused = false;
-      });
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to convert text to speech')),
-        );
-      }
-    }
-  }
-
   Future<void> _pauseResumeTTS() async {
     try {
       if (_isPlayingTTS && !_isPausedTTS) {
@@ -433,12 +339,141 @@ class ChatbotPageState extends State<ChatbotPage> {
     }
   }
 
+  Future<void> _playImageTTS(String text) async {
+    try {
+      print('Starting Image TTS for text: $text');
+      
+      // Stop any currently playing audio first
+      if (_isPlayingTTS || _isPausedTTS || _isImageAudioPlaying || _isImageAudioPaused) {
+        await _audioPlayer.stop();
+        setState(() {
+          _isPlayingTTS = false;
+          _isPausedTTS = false;
+          _isImageAudioPlaying = false;
+          _isImageAudioPaused = false;
+        });
+        await Future.delayed(Duration(milliseconds: 200)); // Brief pause
+      }
+      
+      // Truncate text if it's too long for TTS
+      String ttsText = text;
+      if (text.length > 1000) {
+        ttsText = text.substring(0, 1000) + "...";
+        print('Image TTS text truncated. Original length: ${text.length}, TTS length: ${ttsText.length}');
+      }
+      
+      // Use conversation language for consistency
+      String detectedLanguage = _conversationLanguage.isNotEmpty ? _conversationLanguage : _detectLanguage(ttsText);
+      print('🔍 Image TTS using language: $detectedLanguage');
+      
+      var uri = Uri.parse(ApiConfig.textToSpeechEndpoint);
+      var response = await http.post(
+        uri, 
+        headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+        body: {'text': ttsText, 'language': detectedLanguage}
+      );
+      
+      if (response.statusCode == 200) {
+        var data = json.decode(response.body);
+        String audioBase64 = data['audioContent'] ?? '';
+        
+        if (audioBase64.isNotEmpty) {
+          try {
+            Uint8List audioBytes = base64Decode(audioBase64);
+            print('Playing Image TTS audio in $detectedLanguage, size: ${audioBytes.length} bytes');
+            
+            // Set up audio player event listeners for image audio
+            _audioPlayer.onPlayerStateChanged.listen((audio.PlayerState state) {
+              if (mounted) {
+                setState(() {
+                  _isImageAudioPlaying = state == audio.PlayerState.playing;
+                  _isImageAudioPaused = state == audio.PlayerState.paused;
+                  
+                  // Reset states when audio completes
+                  if (state == audio.PlayerState.completed || state == audio.PlayerState.stopped) {
+                    _isImageAudioPlaying = false;
+                    _isImageAudioPaused = false;
+                  }
+                });
+              }
+            });
+            
+            // Start playing audio
+            setState(() {
+              _isImageAudioPlaying = true;
+              _isImageAudioPaused = false;
+            });
+            
+            await _audioPlayer.play(audio.BytesSource(audioBytes));
+            print('Image TTS playback started successfully in $detectedLanguage');
+            
+            // Show message if text was truncated
+            if (text.length > 1000 && mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('Long text was truncated for speech playback'),
+                  backgroundColor: Colors.orange,
+                  duration: Duration(seconds: 2),
+                ),
+              );
+            }
+          } catch (e) {
+            print('Error playing Image TTS audio: $e');
+            setState(() {
+              _isImageAudioPlaying = false;
+              _isImageAudioPaused = false;
+            });
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('Failed to play audio response'),
+                  backgroundColor: Colors.red,
+                ),
+              );
+            }
+          }
+        } else {
+          print('No audio content received from Image TTS service');
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('No audio content received')),
+            );
+          }
+        }
+      } else {
+        print('Image TTS request failed: ${response.statusCode} - ${response.body}');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Text-to-speech service unavailable')),
+          );
+        }
+      }
+    } catch (e) {
+      print('Error in Image TTS: $e');
+      setState(() {
+        _isImageAudioPlaying = false;
+        _isImageAudioPaused = false;
+      });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to convert text to speech')),
+        );
+      }
+    }
+  }
+
   Future<void> _sendMessage(String text) async {
     if (text.trim().isEmpty) return;
     
-    // Detect input language
+    // Detect input language and update conversation language
     String inputLanguage = _detectLanguage(text);
     String languageCode = _getLanguageCode(inputLanguage);
+    
+    // Update conversation language for consistency
+    _conversationLanguage = inputLanguage;
+    _conversationLanguageCode = languageCode;
+    
+    print('🌐 User input language detected: $inputLanguage ($languageCode)');
     
     setState(() {
       _messages.add({"text": text, "isUser": true});
@@ -447,7 +482,7 @@ class ChatbotPageState extends State<ChatbotPage> {
     _controller.clear();
     try {
       final response = await http.post(
-        Uri.parse('http://localhost:8000/chat'),
+        Uri.parse(ApiConfig.chatEndpoint),
         body: {'text': text, 'language': languageCode},
       );
       if (response.statusCode == 200) {
@@ -455,8 +490,9 @@ class ChatbotPageState extends State<ChatbotPage> {
         setState(() {
           _messages.add({"text": reply, "isUser": false});
         });
-        // Automatically play reply as speech in the same language as input
-        await _playTTS(reply);
+        // Play reply as speech in the SAME language as user input
+        print('🔊 Playing TTS in conversation language: $_conversationLanguage');
+        await _playTTS(reply, useConversationLanguage: true);
       } else {
         setState(() {
           _messages.add({"text": "Sorry, I couldn't process your request.", "isUser": false});
@@ -690,7 +726,7 @@ class ChatbotPageState extends State<ChatbotPage> {
             filename = 'voice.wav';
           }
           
-          var uri = Uri.parse('http://localhost:8000/speech-to-text');
+          var uri = Uri.parse(ApiConfig.speechToTextEndpoint);
           var request = http.MultipartRequest('POST', uri)
             ..files.add(http.MultipartFile.fromBytes(
               'audio', 
@@ -774,13 +810,36 @@ class ChatbotPageState extends State<ChatbotPage> {
     }
   }
 
+  String _getImageAnalysisPrompt() {
+    // Return language-specific image analysis prompt
+    switch (_conversationLanguageCode) {
+      case 'ta':
+        return 'இந்த பயிர் படத்தை பகுப்பாய்வு செய்து நோய்கள், பூச்சிகள், வளர்ச்சி நிலை பற்றி சொல்லுங்கள்';
+      case 'hi':
+        return 'इस फसल की तस्वीर का विश्लेषण करें और बीमारी, कीट, विकास की स्थिति के बारे में बताएं';
+      case 'te':
+        return 'ఈ పంట చిత్రాన్ని విశ్లేషించి వ్యాధులు, కీటకాలు, పెరుగుదల స్థితి గురించి చెప్పండి';
+      case 'kn':
+        return 'ಈ ಬೆಳೆಯ ಚಿತ್ರವನ್ನು ವಿಶ್ಲೇಷಿಸಿ ಮತ್ತು ರೋಗಗಳು, ಕೀಟಗಳು, ಬೆಳವಣಿಗೆಯ ಸ್ಥಿತಿಯ ಬಗ್ಗೆ ಹೇಳಿ';
+      case 'ml':
+        return 'ഈ വിള ചിത്രം വിശകലനം ചെയ്ത് രോഗങ്ങൾ, കീടങ്ങൾ, വളർച്ചാ നില എന്നിവയെ കുറിച്ച് പറയുക';
+      default:
+        return 'Analyze this crop image and provide insights (disease, health, growth, pest, etc.)';
+    }
+  }
+
   Future<void> _uploadImage(File imageFile) async {
     setState(() { _isUploading = true; });
-    final uri = Uri.parse('http://localhost:8000/analyze-image');
+    final uri = Uri.parse(ApiConfig.analyzeImageEndpoint);
+    
+    // Create language-specific prompt
+    String defaultPrompt = _getImageAnalysisPrompt();
+    
     final request = http.MultipartRequest('POST', uri)
       ..fields['prompt'] = _imageDescController.text.isNotEmpty
           ? _imageDescController.text
-          : 'Analyze this crop image and provide insights (disease, health, growth, pest, etc.)'
+          : defaultPrompt
+      ..fields['language'] = _conversationLanguageCode // Send conversation language
       ..files.add(await http.MultipartFile.fromPath('file', imageFile.path));
     final response = await request.send();
     final respStr = await response.stream.bytesToString();
@@ -789,7 +848,7 @@ class ChatbotPageState extends State<ChatbotPage> {
       final data = json.decode(respStr);
       setState(() { _imageReply = data['reply']; });
       if (_imageReply != null && _imageReply!.isNotEmpty) {
-        await _playTTS(_imageReply!);
+        await _playTTS(_imageReply!, useConversationLanguage: true);
       }
     } else {
       setState(() { _imageReply = 'Error analyzing image.'; });
@@ -798,11 +857,16 @@ class ChatbotPageState extends State<ChatbotPage> {
 
   Future<void> _uploadImageWeb(Uint8List bytes, String filename) async {
     setState(() { _isUploading = true; });
-    final uri = Uri.parse('http://localhost:8000/analyze-image');
+    final uri = Uri.parse(ApiConfig.analyzeImageEndpoint);
+    
+    // Create language-specific prompt
+    String defaultPrompt = _getImageAnalysisPrompt();
+    
     final request = http.MultipartRequest('POST', uri)
       ..fields['prompt'] = _imageDescController.text.isNotEmpty
           ? _imageDescController.text
-          : 'Analyze this crop image and provide insights (disease, health, growth, pest, etc.)'
+          : defaultPrompt
+      ..fields['language'] = _conversationLanguageCode // Send conversation language
       ..files.add(http.MultipartFile.fromBytes('file', bytes, filename: filename));
     final response = await request.send();
     final respStr = await response.stream.bytesToString();
@@ -811,7 +875,7 @@ class ChatbotPageState extends State<ChatbotPage> {
       final data = json.decode(respStr);
       setState(() { _imageReply = data['reply']; });
       if (_imageReply != null && _imageReply!.isNotEmpty) {
-        await _playTTS(_imageReply!);
+        await _playTTS(_imageReply!, useConversationLanguage: true);
       }
     } else {
       setState(() { _imageReply = 'Error analyzing image.'; });
@@ -1033,7 +1097,7 @@ class ChatbotPageState extends State<ChatbotPage> {
             filename = 'image_desc_voice.wav';
           }
           
-          var uri = Uri.parse('http://localhost:8000/speech-to-text');
+          var uri = Uri.parse(ApiConfig.speechToTextEndpoint);
           var request = http.MultipartRequest('POST', uri)
             ..files.add(http.MultipartFile.fromBytes(
               'audio', 
@@ -1604,7 +1668,7 @@ class ChatbotPageState extends State<ChatbotPage> {
                         // Play TTS button
                         GestureDetector(
                           onTap: () async {
-                            await _playTTS(msg["text"]);
+                            await _playTTS(msg["text"], useConversationLanguage: true);
                           },
                           child: Container(
                             padding: EdgeInsets.symmetric(horizontal: 10, vertical: 6),
