@@ -267,14 +267,28 @@ async def speech_to_text(audio: UploadFile = File(...)):
         }
         stt_url = f"https://speech.googleapis.com/v1/speech:recognize?key={GOOGLE_SPEECH_API_KEY}"
         
-        # Enhanced configuration for better recognition
+        # Enhanced configuration for automatic language detection
         data = {
             "config": {
-                "encoding": "LINEAR16",
-                "sampleRateHertz": 16000,
-                "languageCode": "en-US",
-                "alternativeLanguageCodes": ["hi-IN", "ta-IN", "te-IN", "kn-IN"],  # Support Indian languages
+                "encoding": "WEBM_OPUS",  # Changed to WEBM_OPUS for web audio
+                "sampleRateHertz": 48000,  # Updated sample rate for web audio
+                "languageCode": "en-US",  # Primary language hint
+                "alternativeLanguageCodes": [
+                    "ta-IN",    # Tamil
+                    "hi-IN",    # Hindi  
+                    "te-IN",    # Telugu
+                    "kn-IN",    # Kannada
+                    "ml-IN",    # Malayalam
+                    "bn-IN",    # Bengali
+                    "gu-IN",    # Gujarati
+                    "pa-IN",    # Punjabi
+                    "mr-IN"     # Marathi
+                ],
                 "enableAutomaticPunctuation": True,
+                "enableWordConfidence": True,
+                "enableSpokenPunctuation": True,
+                "enableWordTimeOffsets": True,
+                "audioChannelCount": 1,
                 "model": "latest_long"
             },
             "audio": {
@@ -285,16 +299,41 @@ async def speech_to_text(audio: UploadFile = File(...)):
         response = requests.post(stt_url, headers=headers, json=data)
         print(f"🔍 Speech API response status: {response.status_code}")
         
+        # Debug: Print the full response to understand the structure
+        if response.ok:
+            result = response.json()
+            print(f"🔍 Full Speech API response: {result}")
+        else:
+            print(f"❌ Speech API error response: {response.text}")
+        
         if response.ok:
             result = response.json()
             transcript = ""
             detected_language = "en-US"  # Default fallback
             
             if "results" in result and result["results"]:
-                alt = result["results"][0]["alternatives"][0]
+                # Get the best alternative from results
+                best_result = result["results"][0]
+                alt = best_result["alternatives"][0]
                 transcript = alt["transcript"]
-                # Try to get detected language from Google Speech API response
-                detected_language = alt.get("languageCode", None)
+                
+                # Try multiple ways to get detected language from Google Speech API
+                detected_language = None
+                
+                # Method 1: Check if language_code is in the result metadata
+                if "languageCode" in best_result:
+                    detected_language = best_result["languageCode"]
+                    print(f"🌐 Language detected from result metadata: {detected_language}")
+                
+                # Method 2: Check alternative's language_code
+                elif "languageCode" in alt:
+                    detected_language = alt["languageCode"]
+                    print(f"🌐 Language detected from alternative: {detected_language}")
+                
+                # Method 3: Check if it's in the response root
+                elif "languageCode" in result:
+                    detected_language = result["languageCode"]
+                    print(f"🌐 Language detected from response root: {detected_language}")
                 
                 # If Google Speech API didn't return language, use our text-based detection
                 if not detected_language:
@@ -307,6 +346,9 @@ async def speech_to_text(audio: UploadFile = File(...)):
                 print(f"🌐 Final detected language: {detected_language}")
             else:
                 print("⚠️ No speech detected in audio")
+                # Still try to detect language from any available text
+                if transcript:
+                    detected_language = detect_language_from_text(transcript)
             
             return {
                 "transcript": transcript, 
