@@ -114,67 +114,255 @@ class ChatbotPageState extends State<ChatbotPage> {
   }
 
   String _detectLanguage(String text) {
-    // Simple language detection based on character patterns
-    // Tamil characters
-    if (RegExp(r'[\u0B80-\u0BFF]').hasMatch(text)) {
-      return 'ta-IN'; // Tamil
-    }
-    // Hindi/Devanagari characters
-    if (RegExp(r'[\u0900-\u097F]').hasMatch(text)) {
-      return 'hi-IN'; // Hindi
-    }
-    // Telugu characters
-    if (RegExp(r'[\u0C00-\u0C7F]').hasMatch(text)) {
-      return 'te-IN'; // Telugu
-    }
-    // Kannada characters
-    if (RegExp(r'[\u0C80-\u0CFF]').hasMatch(text)) {
-      return 'kn-IN'; // Kannada
-    }
-    // Malayalam characters
-    if (RegExp(r'[\u0D00-\u0D7F]').hasMatch(text)) {
-      return 'ml-IN'; // Malayalam
-    }
-    // Bengali characters
-    if (RegExp(r'[\u0980-\u09FF]').hasMatch(text)) {
-      return 'bn-IN'; // Bengali
-    }
-    // Gujarati characters
-    if (RegExp(r'[\u0A80-\u0AFF]').hasMatch(text)) {
-      return 'gu-IN'; // Gujarati
-    }
-    // Punjabi characters
-    if (RegExp(r'[\u0A00-\u0A7F]').hasMatch(text)) {
-      return 'pa-IN'; // Punjabi
-    }
-    // Marathi (also uses Devanagari)
-    if (RegExp(r'[\u0900-\u097F]').hasMatch(text)) {
-      return 'mr-IN'; // Marathi
+    // Enhanced language detection based on character patterns and common words
+    String cleanText = text.toLowerCase().trim();
+    
+    // Calculate the percentage of native characters for each language
+    int totalChars = text.replaceAll(RegExp(r'\s'), '').length;
+    if (totalChars < 3) return 'en-US'; // Too short to detect
+    
+    // Tamil detection with percentage check
+    int tamilChars = RegExp(r'[\u0B80-\u0BFF]').allMatches(text).length;
+    bool hasTamilWords = RegExp(r'\b(இந்த|அது|என்று|செய்|வேண்டும்|உள்ளது|பயிர்|நோய்|இலை|வளர்ச்சி)\b').hasMatch(cleanText);
+    if (tamilChars > 0 || hasTamilWords) {
+      double tamilPercentage = (tamilChars / totalChars) * 100;
+      print('🔍 Tamil detection: ${tamilChars} chars (${tamilPercentage.toStringAsFixed(1)}%), words: $hasTamilWords');
+      if (tamilChars > 2 || hasTamilWords) {
+        return 'ta-IN';
+      }
     }
     
-    // Default to English if no Indian language detected
+    // Hindi/Devanagari detection with percentage check
+    int hindiChars = RegExp(r'[\u0900-\u097F]').allMatches(text).length;
+    bool hasHindiWords = RegExp(r'\b(यह|वह|है|में|से|को|की|का|के|फसल|बीमारी|पत्ते|विकास)\b').hasMatch(cleanText);
+    if (hindiChars > 0 || hasHindiWords) {
+      double hindiPercentage = (hindiChars / totalChars) * 100;
+      print('🔍 Hindi detection: ${hindiChars} chars (${hindiPercentage.toStringAsFixed(1)}%), words: $hasHindiWords');
+      if (hindiChars > 2 || hasHindiWords) {
+        return 'hi-IN';
+      }
+    }
+    
+    // Telugu detection
+    int teluguChars = RegExp(r'[\u0C00-\u0C7F]').allMatches(text).length;
+    bool hasTeluguWords = RegExp(r'\b(ఈ|అది|అని|చేయు|వలె|ఉంది|పంట|వ్యాధి|ఆకులు|వృద్ధి)\b').hasMatch(cleanText);
+    if (teluguChars > 0 || hasTeluguWords) {
+      double teluguPercentage = (teluguChars / totalChars) * 100;
+      print('🔍 Telugu detection: ${teluguChars} chars (${teluguPercentage.toStringAsFixed(1)}%), words: $hasTeluguWords');
+      if (teluguChars > 2 || hasTeluguWords) {
+        return 'te-IN';
+      }
+    }
+    
+    // Kannada detection
+    int kannadaChars = RegExp(r'[\u0C80-\u0CFF]').allMatches(text).length;
+    bool hasKannadaWords = RegExp(r'\b(ಇದು|ಅದು|ಎಂದು|ಮಾಡು|ಇದೆ|ಬೆಳೆ|ರೋಗ|ಎಲೆಗಳು)\b').hasMatch(cleanText);
+    if (kannadaChars > 0 || hasKannadaWords) {
+      double kannadaPercentage = (kannadaChars / totalChars) * 100;
+      print('🔍 Kannada detection: ${kannadaChars} chars (${kannadaPercentage.toStringAsFixed(1)}%), words: $hasKannadaWords');
+      if (kannadaChars > 2 || hasKannadaWords) {
+        return 'kn-IN';
+      }
+    }
+    
+    // Malayalam detection
+    int malayalamChars = RegExp(r'[\u0D00-\u0D7F]').allMatches(text).length;
+    bool hasMalayalamWords = RegExp(r'\b(ഇത്|അത്|എന്ന്|ചെയ്യ്|ഉണ്ട്|വിള|രോഗം|ഇലകൾ)\b').hasMatch(cleanText);
+    if (malayalamChars > 0 || hasMalayalamWords) {
+      double malayalamPercentage = (malayalamChars / totalChars) * 100;
+      print('🔍 Malayalam detection: ${malayalamChars} chars (${malayalamPercentage.toStringAsFixed(1)}%), words: $hasMalayalamWords');
+      if (malayalamChars > 2 || hasMalayalamWords) {
+        return 'ml-IN';
+      }
+    }
+    
+    // Bengali detection
+    int bengaliChars = RegExp(r'[\u0980-\u09FF]').allMatches(text).length;
+    bool hasBengaliWords = RegExp(r'\b(এই|সেই|বলে|করে|আছে|ফসল|রোগ|পাতা)\b').hasMatch(cleanText);
+    if (bengaliChars > 0 || hasBengaliWords) {
+      double bengaliPercentage = (bengaliChars / totalChars) * 100;
+      print('🔍 Bengali detection: ${bengaliChars} chars (${bengaliPercentage.toStringAsFixed(1)}%), words: $hasBengaliWords');
+      if (bengaliChars > 2 || hasBengaliWords) {
+        return 'bn-IN';
+      }
+    }
+    
+    // Gujarati detection
+    int gujaratiChars = RegExp(r'[\u0A80-\u0AFF]').allMatches(text).length;
+    bool hasGujaratiWords = RegExp(r'\b(આ|તે|કહે|કરે|છે|પાક|રોગ|પાંદડા)\b').hasMatch(cleanText);
+    if (gujaratiChars > 0 || hasGujaratiWords) {
+      double gujaratiPercentage = (gujaratiChars / totalChars) * 100;
+      print('🔍 Gujarati detection: ${gujaratiChars} chars (${gujaratiPercentage.toStringAsFixed(1)}%), words: $hasGujaratiWords');
+      if (gujaratiChars > 2 || hasGujaratiWords) {
+        return 'gu-IN';
+      }
+    }
+    
+    // Punjabi detection
+    int punjabiChars = RegExp(r'[\u0A00-\u0A7F]').allMatches(text).length;
+    bool hasPunjabiWords = RegExp(r'\b(ਇਹ|ਉਹ|ਕਹਿ|ਕਰ|ਹੈ|ਫਸਲ|ਬਿਮਾਰੀ|ਪੱਤੇ)\b').hasMatch(cleanText);
+    if (punjabiChars > 0 || hasPunjabiWords) {
+      double punjabiPercentage = (punjabiChars / totalChars) * 100;
+      print('🔍 Punjabi detection: ${punjabiChars} chars (${punjabiPercentage.toStringAsFixed(1)}%), words: $hasPunjabiWords');
+      if (punjabiChars > 2 || hasPunjabiWords) {
+        return 'pa-IN';
+      }
+    }
+    
+    // Marathi detection (specific words that differ from Hindi)
+    bool hasMarathiWords = RegExp(r'\b(हे|ते|म्हणे|करते|आहे|पीक|आजार|पाने)\b').hasMatch(cleanText);
+    if (hasMarathiWords) {
+      print('🔍 Marathi detected: Marathi-specific words found');
+      return 'mr-IN';
+    }
+    
+    // Default to English if no Indian language detected with sufficient confidence
+    print('🔍 Defaulting to English - no Indian language patterns detected with sufficient confidence');
     return 'en-US';
+  }
+
+  // Helper method to clean text for TTS (remove symbols and formatting)
+  String _cleanTextForTTS(String text) {
+    // Remove common symbols and formatting that TTS shouldn't read
+    String cleanedText = text
+        // Remove asterisks used for emphasis
+        .replaceAll(RegExp(r'\*+'), '')
+        // Remove parentheses and content inside for cleaner speech
+        .replaceAll(RegExp(r'\([^)]*\)'), '')
+        // Remove square brackets and content
+        .replaceAll(RegExp(r'\[[^\]]*\]'), '')
+        // Remove extra punctuation
+        .replaceAll(RegExp(r'[•◦▪▫]'), '') // bullet points
+        .replaceAll(RegExp(r'[-–—]{2,}'), ' ') // multiple dashes
+        .replaceAll(RegExp(r'[_]{2,}'), ' ') // underscores
+        // Remove hashtags and special formatting
+        .replaceAll(RegExp(r'#{2,}'), '')
+        .replaceAll(RegExp(r'\*\*.*?\*\*'), '') // bold text markers
+        // Clean up multiple spaces and newlines
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
+    
+    print('🧹 Text cleaned for TTS. Original: "${text.substring(0, text.length > 50 ? 50 : text.length)}..."');
+    print('🧹 Cleaned: "${cleanedText.substring(0, cleanedText.length > 50 ? 50 : cleanedText.length)}..."');
+    
+    return cleanedText;
+  }
+
+  // Enhanced method to extract native language content only
+  String _extractNativeLanguageContent(String text, String detectedLanguage) {
+    String cleanedText = _cleanTextForTTS(text);
+    
+    // If it's English, return cleaned text as is
+    if (detectedLanguage == 'en-US') {
+      return cleanedText;
+    }
+    
+    // For Indian languages, extract only the native script content
+    List<String> nativeLines = [];
+    List<String> lines = cleanedText.split('\n');
+    
+    for (String line in lines) {
+      String trimmedLine = line.trim();
+      if (trimmedLine.isEmpty) continue;
+      
+      // Check if this line contains native script
+      bool hasNativeScript = false;
+      
+      switch (detectedLanguage) {
+        case 'ta-IN':
+          hasNativeScript = RegExp(r'[\u0B80-\u0BFF]').hasMatch(trimmedLine);
+          break;
+        case 'hi-IN':
+        case 'mr-IN':
+          hasNativeScript = RegExp(r'[\u0900-\u097F]').hasMatch(trimmedLine);
+          break;
+        case 'te-IN':
+          hasNativeScript = RegExp(r'[\u0C00-\u0C7F]').hasMatch(trimmedLine);
+          break;
+        case 'kn-IN':
+          hasNativeScript = RegExp(r'[\u0C80-\u0CFF]').hasMatch(trimmedLine);
+          break;
+        case 'ml-IN':
+          hasNativeScript = RegExp(r'[\u0D00-\u0D7F]').hasMatch(trimmedLine);
+          break;
+        case 'bn-IN':
+          hasNativeScript = RegExp(r'[\u0980-\u09FF]').hasMatch(trimmedLine);
+          break;
+        case 'gu-IN':
+          hasNativeScript = RegExp(r'[\u0A80-\u0AFF]').hasMatch(trimmedLine);
+          break;
+        case 'pa-IN':
+          hasNativeScript = RegExp(r'[\u0A00-\u0A7F]').hasMatch(trimmedLine);
+          break;
+      }
+      
+      // Only include lines that have native script content
+      if (hasNativeScript) {
+        // Remove any remaining English words and numbers from native text
+        String nativeLine = trimmedLine
+            .replaceAll(RegExp(r'\b[A-Za-z]+\b'), '') // Remove English words
+            .replaceAll(RegExp(r'\d+'), '') // Remove numbers that might confuse TTS
+            .replaceAll(RegExp(r'[^\u0900-\u097F\u0B80-\u0BFF\u0C00-\u0C7F\u0C80-\u0CFF\u0D00-\u0D7F\u0980-\u09FF\u0A80-\u0AFF\u0A00-\u0A7F\s\.,!?]'), '') // Keep only native scripts and basic punctuation
+            .replaceAll(RegExp(r'\s+'), ' ')
+            .trim();
+        
+        if (nativeLine.isNotEmpty) {
+          nativeLines.add(nativeLine);
+        }
+      }
+    }
+    
+    String result = nativeLines.join(' ').trim();
+    
+    // If no native content found, use the first few words of cleaned text
+    if (result.isEmpty) {
+      List<String> words = cleanedText.split(' ');
+      result = words.take(10).join(' '); // First 10 words only
+    }
+    
+    print('🎯 Extracted native content for $detectedLanguage:');
+    print('📝 Original length: ${cleanedText.length} characters');
+    print('🔤 Native content: "${result.substring(0, result.length > 100 ? 100 : result.length)}..."');
+    
+    return result;
   }
 
   Future<void> _playTTS(String text, {bool useConversationLanguage = false}) async {
     try {
       print('Starting TTS for text: $text');
       
-      // Truncate text if it's too long for TTS (5000 byte limit)
-      String ttsText = text;
-      if (text.length > 1000) { // Conservative limit to account for UTF-8 encoding
-        ttsText = text.substring(0, 1000) + "...";
-        print('Text truncated for TTS. Original length: ${text.length}, TTS length: ${ttsText.length}');
-      }
-      
-      // Use conversation language if specified, otherwise detect from text
+      // Enhanced language detection for TTS
       String detectedLanguage;
       if (useConversationLanguage && _conversationLanguage.isNotEmpty) {
         detectedLanguage = _conversationLanguage;
         print('🎯 Using conversation language: $detectedLanguage');
       } else {
-        detectedLanguage = _detectLanguage(ttsText);
-        print('🔍 Detected language from text: $detectedLanguage');
+        // Always detect from the actual text content for better accuracy
+        detectedLanguage = _detectLanguage(text);
+        print('🔍 Auto-detected language from text: $detectedLanguage');
+        
+        // Update conversation language if this is a new detection
+        if (_conversationLanguage.isEmpty || _conversationLanguage == 'en-US') {
+          _conversationLanguage = detectedLanguage;
+          _conversationLanguageCode = _getLanguageCode(detectedLanguage);
+          print('🌐 Updated conversation language to: $detectedLanguage');
+        }
+      }
+      
+      // Extract only native language content for consistent TTS
+      String nativeText = _extractNativeLanguageContent(text, detectedLanguage);
+      
+      // Truncate text if it's too long for TTS
+      String ttsText = nativeText;
+      if (nativeText.length > 1000) { // Conservative limit to account for UTF-8 encoding
+        ttsText = nativeText.substring(0, 1000) + "...";
+        print('Native text truncated for TTS. Original length: ${nativeText.length}, TTS length: ${ttsText.length}');
+      }
+      
+      // Skip TTS if no meaningful content
+      if (ttsText.trim().length < 3) {
+        print('⚠️ Skipping TTS - insufficient native content');
+        return;
       }
       
       var uri = Uri.parse(ApiConfig.textToSpeechEndpoint);
@@ -355,16 +543,38 @@ class ChatbotPageState extends State<ChatbotPage> {
         await Future.delayed(Duration(milliseconds: 200)); // Brief pause
       }
       
-      // Truncate text if it's too long for TTS
-      String ttsText = text;
-      if (text.length > 1000) {
-        ttsText = text.substring(0, 1000) + "...";
-        print('Image TTS text truncated. Original length: ${text.length}, TTS length: ${ttsText.length}');
+      // Enhanced language detection - always detect from actual content
+      String detectedLanguage;
+      if (_conversationLanguage.isNotEmpty && _conversationLanguage != 'en-US') {
+        detectedLanguage = _conversationLanguage;
+        print('🎯 Using established conversation language: $detectedLanguage');
+      } else {
+        detectedLanguage = _detectLanguage(text);
+        print('🔍 Auto-detected language for image TTS: $detectedLanguage');
+        
+        // Update conversation language if this is a new detection
+        if (detectedLanguage != 'en-US') {
+          _conversationLanguage = detectedLanguage;
+          _conversationLanguageCode = _getLanguageCode(detectedLanguage);
+          print('🌐 Updated conversation language to: $detectedLanguage');
+        }
       }
       
-      // Use conversation language for consistency
-      String detectedLanguage = _conversationLanguage.isNotEmpty ? _conversationLanguage : _detectLanguage(ttsText);
-      print('🔍 Image TTS using language: $detectedLanguage');
+      // Extract only native language content for consistent TTS
+      String nativeText = _extractNativeLanguageContent(text, detectedLanguage);
+      
+      // Truncate text if it's too long for TTS
+      String ttsText = nativeText;
+      if (nativeText.length > 1000) {
+        ttsText = nativeText.substring(0, 1000) + "...";
+        print('Image TTS native text truncated. Original length: ${nativeText.length}, TTS length: ${ttsText.length}');
+      }
+      
+      // Skip TTS if no meaningful content
+      if (ttsText.trim().length < 3) {
+        print('⚠️ Skipping Image TTS - insufficient native content');
+        return;
+      }
       
       var uri = Uri.parse(ApiConfig.textToSpeechEndpoint);
       var response = await http.post(
@@ -490,9 +700,9 @@ class ChatbotPageState extends State<ChatbotPage> {
         setState(() {
           _messages.add({"text": reply, "isUser": false});
         });
-        // Play reply as speech in the SAME language as user input
-        print('🔊 Playing TTS in conversation language: $_conversationLanguage');
-        await _playTTS(reply, useConversationLanguage: true);
+        // Always detect language from the reply content for more accurate TTS
+        print('🔊 Playing TTS with auto-detected language from reply content');
+        await _playTTS(reply, useConversationLanguage: false); // Let it auto-detect from content
       } else {
         setState(() {
           _messages.add({"text": "Sorry, I couldn't process your request.", "isUser": false});
@@ -848,7 +1058,7 @@ class ChatbotPageState extends State<ChatbotPage> {
       final data = json.decode(respStr);
       setState(() { _imageReply = data['reply']; });
       if (_imageReply != null && _imageReply!.isNotEmpty) {
-        await _playTTS(_imageReply!, useConversationLanguage: true);
+        await _playImageTTS(_imageReply!); // Auto-detect language from reply content
       }
     } else {
       setState(() { _imageReply = 'Error analyzing image.'; });
@@ -875,7 +1085,7 @@ class ChatbotPageState extends State<ChatbotPage> {
       final data = json.decode(respStr);
       setState(() { _imageReply = data['reply']; });
       if (_imageReply != null && _imageReply!.isNotEmpty) {
-        await _playTTS(_imageReply!, useConversationLanguage: true);
+        await _playImageTTS(_imageReply!); // Auto-detect language from reply content
       }
     } else {
       setState(() { _imageReply = 'Error analyzing image.'; });
@@ -1668,7 +1878,7 @@ class ChatbotPageState extends State<ChatbotPage> {
                         // Play TTS button
                         GestureDetector(
                           onTap: () async {
-                            await _playTTS(msg["text"], useConversationLanguage: true);
+                            await _playTTS(msg["text"], useConversationLanguage: false); // Auto-detect from content
                           },
                           child: Container(
                             padding: EdgeInsets.symmetric(horizontal: 10, vertical: 6),
