@@ -10,8 +10,8 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:image_picker/image_picker.dart';
 import '../theme/colors.dart';
 import 'package:http/http.dart' as http;
-import 'dart:ui'; // Needed for ImageFilter
-import 'dart:js' as js; // For JavaScript interop
+import 'dart:ui';
+import 'dart:js' as js;
 import '../config/api_config.dart';
 
 class ChatbotPage extends StatefulWidget {
