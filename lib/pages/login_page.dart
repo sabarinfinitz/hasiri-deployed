@@ -6,7 +6,6 @@ import 'home_page.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
-  
   @override
   LoginPageState createState() => LoginPageState();
 }
@@ -18,7 +17,6 @@ class LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
   late AnimationController _animationController;
   late Animation<double> _fadeAnimation;
   late Animation<Offset> _slideAnimation;
-
   @override
   void initState() {
     super.initState();
